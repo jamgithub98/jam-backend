@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  devices   Device[]
+}
+
+model Device {
+  id             String   @id @default(uuid())
+  userId         String
+  deviceName     String
+  androidVersion String
+  battery        String
+  latitude       Float?
+  longitude      Float?
+  status         String?  @default("online") // <-- Yeh line honi zaroori hai
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id])
+}
