@@ -23,7 +23,8 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json());
 
-const JWT_SECRET = 'JAM_SUPER_SECRET_KEY_2026';
+// Fixed: Using Environment Variable for Secret
+const JWT_SECRET = process.env.JWT_SECRET || 'JAM_SUPER_SECRET_KEY_2026';
 
 // Setup Multer Storage for photos
 const uploadDir = path.join(__dirname, '../uploads');
@@ -151,7 +152,10 @@ app.post('/upload-photo', upload.single('photo'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No photo received by server' });
     }
-    const photoUrl = `http://localhost:5000/uploads/${req.file.filename}`;
+    // Fixed: Dynamic Host URL instead of localhost
+    const baseUrl = req.protocol + '://' + req.get('host');
+    const photoUrl = `${baseUrl}/uploads/${req.file.filename}`;
+    
     console.log(`📸 New photo received from user: ${userId}`);
     io.emit('new_photo_received', { userId, photoUrl });
     res.json({ success: true, message: 'Photo securely uploaded!', photoUrl });
@@ -217,21 +221,16 @@ app.post('/sync-notifications', async (req, res) => {
   }
 });
 
-// 🚀 NEW: Sync Activity Logs API
+// Sync Activity Logs API
 app.post('/sync-activity-logs', async (req, res) => {
   try {
     const { userId, action, details } = req.body;
-    
     if (!userId || !action) {
       return res.status(400).json({ success: false, message: 'Invalid log data received' });
     }
-
     const timestamp = new Date().toISOString();
     console.log(`📊 New Activity Log from ${userId}: [${action}] ${details}`);
-    
-    // Broadcast log instantly to React Dashboard
     io.emit('activity_log_received', { userId, action, details, timestamp });
-    
     res.json({ success: true, message: 'Activity Log synced successfully!' });
   } catch (error) {
     console.error('Sync Activity Log Error:', error);
@@ -247,8 +246,9 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = 5000;
+// Fixed: Using Dynamic Port for Cloud deployment
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 JAM API is running!`);
-  console.log(`🛡️ JAM Server is active on http://localhost:${PORT}`);
+  console.log(`🛡️ JAM Server is active on port ${PORT}`);
 });
