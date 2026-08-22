@@ -292,8 +292,48 @@ app.get('/children/:parentId', async (req, res) => {
 // ------------------------------------------------------------
 // SOCKET.IO & SERVER START (SAME)
 // ------------------------------------------------------------
-io.on('connection', (socket) => {
+// Socket.IO Connection Handler (Remote Commands ke saath)
+io.on('connection', (socket: any) => {
   console.log(`🔌 A client connected: ${socket.id}`);
+
+  // 1. Jab bhi koi user (Parent ya Child) login kare, wo apni room join kare
+  socket.on('register_user', (userId: string) => {
+    socket.join(userId);
+    console.log(`✅ User ${userId} joined their private room`);
+  });
+
+  // 2. Parent ne Child ki photo capture karne ka command bheja
+  socket.on('parent_trigger_capture', async (data: any) => {
+    const { parentId, childId } = data;
+    console.log(`📸 Parent ${parentId} requesting capture from child ${childId}`);
+
+    // (Optional) Security Check: Verify ki child actually iska child hai ya nahi
+    try {
+      const child = await prisma.user.findUnique({
+        where: { id: childId },
+        select: { parentId: true }
+      });
+      if (child?.parentId !== parentId) {
+        socket.emit('command_error', 'Unauthorized: This is not your child.');
+        return;
+      }
+
+      // Child ki room me command bhejo
+      io.to(childId).emit('capture_command', { parentId });
+    } catch (error: any) {
+      console.error('Error verifying parent-child relation:', error);
+    }
+  });
+
+  // 3. Child ne photo click kar li aur upload kar di, result parent ko bhejo
+  socket.on('child_capture_result', (data: any) => {
+    const { childId, parentId, photoUrl } = data;
+    console.log(`📸 Child ${childId} sent photo to parent ${parentId}: ${photoUrl}`);
+    
+    // Parent ki room me result bhejo
+    io.to(parentId).emit('capture_result', { childId, photoUrl, success: true });
+  });
+
   socket.on('disconnect', () => {
     console.log(`❌ Client disconnected: ${socket.id}`);
   });
