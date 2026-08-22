@@ -12,7 +12,14 @@ model User {
   name      String
   email     String   @unique
   password  String
+  role      String   @default("child") // "parent" ya "child"
+  parentId  String?  // Agar child hai toh parent ka ID store hoga
   createdAt DateTime @default(now())
+  
+  // Self-relation for Parent <-> Child
+  parent    User?    @relation("UserParent", fields: [parentId], references: [id])
+  children  User[]   @relation("UserParent")
+
   devices   Device[]
 }
 
@@ -24,7 +31,7 @@ model Device {
   battery        String
   latitude       Float?
   longitude      Float?
-  status         String?  @default("online") // <-- Yeh line honi zaroori hai
+  status         String?  @default("online")
   createdAt      DateTime @default(now())
 
   user           User     @relation(fields: [userId], references: [id])

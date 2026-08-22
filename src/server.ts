@@ -45,18 +45,30 @@ const upload = multer({ storage: storage });
 
 app.use('/uploads', express.static(uploadDir));
 
-// Register API
+// ------------------------------------------------------------
+// 1️⃣ REGISTER API (UPDATED - Role & ParentId Support)
+// ------------------------------------------------------------
 app.post('/register', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, role, parentId } = req.body; // ✅ role & parentId add
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ success: false, message: 'Email is already registered!' });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-    await prisma.user.create({
-      data: { name, email, password: hashedPassword }
-    });
+    
+    // ✅ Naya data object (role aur parentId support)
+    const userData = {
+      name,
+      email,
+      password: hashedPassword,
+      role: role || 'child', // Default child
+    };
+    if (parentId) {
+      userData.parentId = parentId;
+    }
+
+    await prisma.user.create({ data: userData });
     res.json({ success: true, message: 'Account created successfully!' });
   } catch (error) {
     console.error('Registration Error:', error);
@@ -64,7 +76,9 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// Login API
+// ------------------------------------------------------------
+// 2️⃣ LOGIN API (UPDATED - Role Return Karega)
+// ------------------------------------------------------------
 app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -81,7 +95,12 @@ app.post('/login', async (req, res) => {
       success: true,
       message: 'Login successful!',
       token,
-      user: { id: user.id, name: user.name, email: user.email }
+      user: { 
+        id: user.id, 
+        name: user.name, 
+        email: user.email,
+        role: user.role // ✅ Yahan role bhejo
+      }
     });
   } catch (error) {
     console.error('Login Error:', error);
@@ -89,7 +108,9 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Add Device API
+// ------------------------------------------------------------
+// 3️⃣ ADD DEVICE API (SAME)
+// ------------------------------------------------------------
 app.post('/add-device', async (req, res) => {
   try {
     const { userId, deviceName, androidVersion, battery } = req.body;
@@ -103,7 +124,9 @@ app.post('/add-device', async (req, res) => {
   }
 });
 
-// Get Devices API
+// ------------------------------------------------------------
+// 4️⃣ GET DEVICES API (SAME)
+// ------------------------------------------------------------
 app.get('/devices/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -118,7 +141,9 @@ app.get('/devices/:userId', async (req, res) => {
   }
 });
 
-// Update Location API
+// ------------------------------------------------------------
+// 5️⃣ UPDATE LOCATION API (SAME)
+// ------------------------------------------------------------
 app.post('/update-location', async (req, res) => {
   try {
     const { userId, latitude, longitude } = req.body;
@@ -145,14 +170,15 @@ app.post('/update-location', async (req, res) => {
   }
 });
 
-// Upload Photo API
+// ------------------------------------------------------------
+// 6️⃣ UPLOAD PHOTO API (SAME)
+// ------------------------------------------------------------
 app.post('/upload-photo', upload.single('photo'), async (req, res) => {
   try {
     const { userId } = req.body;
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No photo received by server' });
     }
-    // Fixed: Dynamic Host URL instead of localhost
     const baseUrl = req.protocol + '://' + req.get('host');
     const photoUrl = `${baseUrl}/uploads/${req.file.filename}`;
     
@@ -165,7 +191,9 @@ app.post('/upload-photo', upload.single('photo'), async (req, res) => {
   }
 });
 
-// Delete Photo API
+// ------------------------------------------------------------
+// 7️⃣ DELETE PHOTO API (SAME)
+// ------------------------------------------------------------
 app.post('/delete-photo', async (req, res) => {
   try {
     const { userId, photoUrl } = req.body;
@@ -191,7 +219,9 @@ app.post('/delete-photo', async (req, res) => {
   }
 });
 
-// Sync Files API
+// ------------------------------------------------------------
+// 8️⃣ SYNC FILES API (SAME)
+// ------------------------------------------------------------
 app.post('/sync-files', async (req, res) => {
   try {
     const { userId, files } = req.body;
@@ -207,7 +237,9 @@ app.post('/sync-files', async (req, res) => {
   }
 });
 
-// Sync Notifications API
+// ------------------------------------------------------------
+// 9️⃣ SYNC NOTIFICATIONS API (SAME)
+// ------------------------------------------------------------
 app.post('/sync-notifications', async (req, res) => {
   try {
     const { userId, packageName, title, text } = req.body;
@@ -221,7 +253,9 @@ app.post('/sync-notifications', async (req, res) => {
   }
 });
 
-// Sync Activity Logs API
+// ------------------------------------------------------------
+// 🔟 SYNC ACTIVITY LOGS API (SAME)
+// ------------------------------------------------------------
 app.post('/sync-activity-logs', async (req, res) => {
   try {
     const { userId, action, details } = req.body;
@@ -238,7 +272,26 @@ app.post('/sync-activity-logs', async (req, res) => {
   }
 });
 
-// Socket.IO Connection Handler
+// ------------------------------------------------------------
+// 1️⃣1️⃣ 🆕 GET CHILDREN API (PARENT DASHBOARD KE LIYE)
+// ------------------------------------------------------------
+app.get('/children/:parentId', async (req, res) => {
+  try {
+    const { parentId } = req.params;
+    const children = await prisma.user.findMany({
+      where: { parentId: parentId },
+      include: { devices: { orderBy: { createdAt: 'desc' } } } // Latest device bhi saath me
+    });
+    res.json({ success: true, children });
+  } catch (error) {
+    console.error('Fetch Children Error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching children' });
+  }
+});
+
+// ------------------------------------------------------------
+// SOCKET.IO & SERVER START (SAME)
+// ------------------------------------------------------------
 io.on('connection', (socket) => {
   console.log(`🔌 A client connected: ${socket.id}`);
   socket.on('disconnect', () => {
@@ -246,7 +299,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Fixed: Using Dynamic Port for Cloud deployment
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 JAM API is running!`);
