@@ -8,7 +8,7 @@ import { Server } from 'socket.io';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { createClient } from '@supabase/supabase-js'; // ✅ Naya import
+import { createClient } from '@supabase/supabase-js';
 
 const app = express();
 const server = http.createServer(app);
