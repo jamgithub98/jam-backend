@@ -201,7 +201,88 @@ app.post('/upload-photo', upload.single('photo'), async (req: any, res: any) => 
     res.status(500).json({ success: false, message: 'Server error during photo upload' });
   }
 });
+// ------------------------------------------------------------
+// 🗑️ DELETE PHOTO API (Robust - Handles Supabase & Local URLs)
+// ------------------------------------------------------------
+app.post('/delete-photo', async (req: any, res: any) => {
+  try {
+    const { userId, photoUrl } = req.body;
 
+    if (!photoUrl) {
+      return res.status(400).json({ success: false, message: 'Photo URL is required' });
+    }
+
+    console.log(`🔍 Attempting to delete: ${photoUrl}`);
+
+    // Check if it's a local Render URL (old format)
+    if (photoUrl.includes('/uploads/')) {
+      const filename = photoUrl.split('/').pop();
+      if (!filename) {
+        return res.status(400).json({ success: false, message: 'Invalid local URL format' });
+      }
+      
+      // Try to delete from local filesystem (if it exists)
+      const filePath = path.join(__dirname, '../uploads', filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        console.log(`🗑️ Deleted local file: ${filename}`);
+        io.emit('photo_deleted', { userId, photoUrl });
+        return res.json({ success: true, message: 'Local photo deleted successfully!' });
+      } else {
+        // If local file not found, maybe it was already migrated? Just return success.
+        return res.json({ success: true, message: 'Local file already removed.' });
+      }
+    }
+
+    // Supabase Storage URL format
+    // Expected format: https://<project>.supabase.co/storage/v1/object/public/jam-shield/photos/...
+    try {
+      const urlObj = new URL(photoUrl);
+      const pathname = urlObj.pathname; // e.g. /storage/v1/object/public/jam-shield/photos/user123/file.jpg
+
+      // Extract everything after "public/jam-shield/"
+      const bucketName = 'jam-shield';
+      const searchStr = `/storage/v1/object/public/${bucketName}/`;
+      
+      if (!pathname.includes(searchStr)) {
+        return res.status(400).json({ success: false, message: 'Invalid Supabase URL format. Missing public bucket path.' });
+      }
+
+      const filePath = pathname.split(searchStr)[1];
+      if (!filePath) {
+        return res.status(400).json({ success: false, message: 'Could not extract file path from URL.' });
+      }
+
+      console.log(`🗑️ Deleting Supabase file: ${filePath}`);
+
+      // Delete from Supabase Storage
+      const { data, error } = await supabase.storage
+        .from(bucketName)
+        .remove([filePath]);
+
+      if (error) {
+        console.error('Supabase Delete Error:', error);
+        // If file not found (404 style), return success as it's already gone.
+        if (error.message?.includes('not found')) {
+          return res.json({ success: true, message: 'File already removed from Supabase.' });
+        }
+        return res.status(500).json({ success: false, message: 'Failed to delete from storage: ' + error.message });
+      }
+
+      console.log(`✅ File deleted successfully: ${filePath}`);
+      io.emit('photo_deleted', { userId, photoUrl });
+      res.json({ success: true, message: 'Photo deleted successfully from Supabase!' });
+
+    } catch (parseError) {
+      console.error('URL Parsing Error:', parseError);
+      return res.status(400).json({ success: false, message: 'Malformed URL provided.' });
+    }
+
+  } catch (error: any) {
+    console.error('Delete Photo Error:', error);
+    res.status(500).json({ success: false, message: 'Server error during photo deletion' });
+  }
+});
 // ------------------------------------------------------------
 // SYNC FILES API (SAME)
 // ------------------------------------------------------------
