@@ -8,6 +8,7 @@ import { Server } from 'socket.io';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { createClient } from '@supabase/supabase-js'; // ✅ Naya import
 
 const app = express();
 const server = http.createServer(app);
@@ -23,51 +24,37 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json());
 
-// Fixed: Using Environment Variable for Secret
+// ✅ Supabase Client Initialize karo
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!
+);
+
 const JWT_SECRET = process.env.JWT_SECRET || 'JAM_SUPER_SECRET_KEY_2026';
 
-// Setup Multer Storage for photos
-const uploadDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'jam_hidden_pic_' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-const upload = multer({ storage: storage });
-
-app.use('/uploads', express.static(uploadDir));
+// ✅ Multer ko memoryStorage me change karo (diskStorage ki jagah)
+const upload = multer({ storage: multer.memoryStorage() });
 
 // ------------------------------------------------------------
-// 1️⃣ REGISTER API (UPDATED - Role & ParentId Support)
+// REGISTER API (SAME)
 // ------------------------------------------------------------
 app.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, parentId } = req.body; // ✅ role & parentId add
+    const { name, email, password, role, parentId } = req.body;
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ success: false, message: 'Email is already registered!' });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // ✅ Naya data object (role aur parentId support)
-    const userData = {
+    const userData: any = {
       name,
       email,
       password: hashedPassword,
-      role: role || 'child', // Default child
+      role: role || 'child',
     };
     if (parentId) {
       userData.parentId = parentId;
     }
-
     await prisma.user.create({ data: userData });
     res.json({ success: true, message: 'Account created successfully!' });
   } catch (error) {
@@ -77,7 +64,7 @@ app.post('/register', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 2️⃣ LOGIN API (UPDATED - Role Return Karega)
+// LOGIN API (SAME)
 // ------------------------------------------------------------
 app.post('/login', async (req, res) => {
   try {
@@ -95,11 +82,11 @@ app.post('/login', async (req, res) => {
       success: true,
       message: 'Login successful!',
       token,
-      user: { 
-        id: user.id, 
-        name: user.name, 
+      user: {
+        id: user.id,
+        name: user.name,
         email: user.email,
-        role: user.role // ✅ Yahan role bhejo
+        role: user.role
       }
     });
   } catch (error) {
@@ -109,7 +96,7 @@ app.post('/login', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 3️⃣ ADD DEVICE API (SAME)
+// ADD DEVICE API (SAME)
 // ------------------------------------------------------------
 app.post('/add-device', async (req, res) => {
   try {
@@ -125,14 +112,14 @@ app.post('/add-device', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 4️⃣ GET DEVICES API (SAME)
+// GET DEVICES API (SAME)
 // ------------------------------------------------------------
 app.get('/devices/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    const devices = await prisma.device.findMany({ 
-        where: { userId },
-        orderBy: { createdAt: 'desc' }
+    const devices = await prisma.device.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
     });
     res.json({ success: true, count: devices.length, devices });
   } catch (error) {
@@ -142,27 +129,26 @@ app.get('/devices/:userId', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 5️⃣ UPDATE LOCATION API (SAME)
+// UPDATE LOCATION API (SAME)
 // ------------------------------------------------------------
 app.post('/update-location', async (req, res) => {
   try {
     const { userId, latitude, longitude } = req.body;
     const userDevices = await prisma.device.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' }
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
     });
 
     if (userDevices.length > 0) {
-        const latestDeviceId = userDevices[0].id;
-        await prisma.device.update({
-            where: { id: latestDeviceId },
-            data: { latitude, longitude, status: 'online' }
-        });
-        
-        io.emit('device_updated', { userId });
-        res.json({ success: true, message: 'Location updated successfully!' });
+      const latestDeviceId = userDevices[0].id;
+      await prisma.device.update({
+        where: { id: latestDeviceId },
+        data: { latitude, longitude, status: 'online' }
+      });
+      io.emit('device_updated', { userId });
+      res.json({ success: true, message: 'Location updated successfully!' });
     } else {
-        res.status(404).json({ success: false, message: 'No device found to update' });
+      res.status(404).json({ success: false, message: 'No device found to update' });
     }
   } catch (error) {
     console.error('Update Location Error:', error);
@@ -171,56 +157,53 @@ app.post('/update-location', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 6️⃣ UPLOAD PHOTO API (SAME)
+// 🆕 UPLOAD PHOTO API (SUPABASE STORAGE) - UPDATED
 // ------------------------------------------------------------
-app.post('/upload-photo', upload.single('photo'), async (req, res) => {
+app.post('/upload-photo', upload.single('photo'), async (req: any, res: any) => {
   try {
     const { userId } = req.body;
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No photo received by server' });
     }
-    const baseUrl = req.protocol + '://' + req.get('host');
-    const photoUrl = `${baseUrl}/uploads/${req.file.filename}`;
-    
-    console.log(`📸 New photo received from user: ${userId}`);
+
+    // 1. Unique file name generate karo
+    const fileExt = path.extname(req.file.originalname);
+    const fileName = `jam_hidden_pic_${Date.now()}${fileExt}`;
+    const filePath = `photos/${userId}/${fileName}`;
+
+    // 2. File buffer ko Supabase Storage me upload karo
+    const { data, error } = await supabase.storage
+      .from('jam-shield') // 👈 Ye bucket pehle Supabase me create karna hai!
+      .upload(filePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (error) {
+      console.error('Supabase Upload Error:', error);
+      return res.status(500).json({ success: false, message: 'Failed to upload to storage' });
+    }
+
+    // 3. Public URL generate karo
+    const { data: urlData } = supabase.storage
+      .from('jam-shield')
+      .getPublicUrl(filePath);
+
+    const photoUrl = urlData?.publicUrl || '';
+
+    console.log(`📸 Photo uploaded to Supabase: ${photoUrl}`);
     io.emit('new_photo_received', { userId, photoUrl });
-    res.json({ success: true, message: 'Photo securely uploaded!', photoUrl });
-  } catch (error) {
+    res.json({ success: true, message: 'Photo uploaded successfully!', photoUrl });
+
+  } catch (error: any) {
     console.error('Upload Photo Error:', error);
     res.status(500).json({ success: false, message: 'Server error during photo upload' });
   }
 });
 
 // ------------------------------------------------------------
-// 7️⃣ DELETE PHOTO API (SAME)
-// ------------------------------------------------------------
-app.post('/delete-photo', async (req, res) => {
-  try {
-    const { userId, photoUrl } = req.body;
-    if (!photoUrl) {
-      return res.status(400).json({ success: false, message: 'Photo URL is required' });
-    }
-    const filename = photoUrl.split('/').pop();
-    if (!filename) {
-      return res.status(400).json({ success: false, message: 'Invalid photo URL' });
-    }
-    const filePath = path.join(__dirname, '../uploads', filename);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      console.log(`🗑️ Photo deleted permanently: ${filename}`);
-      io.emit('photo_deleted', { userId, photoUrl });
-      res.json({ success: true, message: 'Photo deleted successfully!' });
-    } else {
-      res.status(404).json({ success: false, message: 'Photo not found on server' });
-    }
-  } catch (error) {
-    console.error('Delete Photo Error:', error);
-    res.status(500).json({ success: false, message: 'Server error during photo deletion' });
-  }
-});
-
-// ------------------------------------------------------------
-// 8️⃣ SYNC FILES API (SAME)
+// SYNC FILES API (SAME)
 // ------------------------------------------------------------
 app.post('/sync-files', async (req, res) => {
   try {
@@ -238,7 +221,7 @@ app.post('/sync-files', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 9️⃣ SYNC NOTIFICATIONS API (SAME)
+// SYNC NOTIFICATIONS API (SAME)
 // ------------------------------------------------------------
 app.post('/sync-notifications', async (req, res) => {
   try {
@@ -254,7 +237,7 @@ app.post('/sync-notifications', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 🔟 SYNC ACTIVITY LOGS API (SAME)
+// SYNC ACTIVITY LOGS API (SAME)
 // ------------------------------------------------------------
 app.post('/sync-activity-logs', async (req, res) => {
   try {
@@ -273,14 +256,14 @@ app.post('/sync-activity-logs', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 1️⃣1️⃣ 🆕 GET CHILDREN API (PARENT DASHBOARD KE LIYE)
+// GET CHILDREN API (PARENT DASHBOARD)
 // ------------------------------------------------------------
 app.get('/children/:parentId', async (req, res) => {
   try {
     const { parentId } = req.params;
     const children = await prisma.user.findMany({
       where: { parentId: parentId },
-      include: { devices: { orderBy: { createdAt: 'desc' } } } // Latest device bhi saath me
+      include: { devices: { orderBy: { createdAt: 'desc' } } }
     });
     res.json({ success: true, children });
   } catch (error) {
@@ -290,24 +273,20 @@ app.get('/children/:parentId', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// SOCKET.IO & SERVER START (SAME)
+// SOCKET.IO CONNECTION HANDLER (WITH REMOTE CAPTURE)
 // ------------------------------------------------------------
-// Socket.IO Connection Handler (Remote Commands ke saath)
 io.on('connection', (socket: any) => {
   console.log(`🔌 A client connected: ${socket.id}`);
 
-  // 1. Jab bhi koi user (Parent ya Child) login kare, wo apni room join kare
   socket.on('register_user', (userId: string) => {
     socket.join(userId);
     console.log(`✅ User ${userId} joined their private room`);
   });
 
-  // 2. Parent ne Child ki photo capture karne ka command bheja
   socket.on('parent_trigger_capture', async (data: any) => {
     const { parentId, childId } = data;
     console.log(`📸 Parent ${parentId} requesting capture from child ${childId}`);
 
-    // (Optional) Security Check: Verify ki child actually iska child hai ya nahi
     try {
       const child = await prisma.user.findUnique({
         where: { id: childId },
@@ -317,20 +296,15 @@ io.on('connection', (socket: any) => {
         socket.emit('command_error', 'Unauthorized: This is not your child.');
         return;
       }
-
-      // Child ki room me command bhejo
       io.to(childId).emit('capture_command', { parentId });
     } catch (error: any) {
       console.error('Error verifying parent-child relation:', error);
     }
   });
 
-  // 3. Child ne photo click kar li aur upload kar di, result parent ko bhejo
   socket.on('child_capture_result', (data: any) => {
     const { childId, parentId, photoUrl } = data;
     console.log(`📸 Child ${childId} sent photo to parent ${parentId}: ${photoUrl}`);
-    
-    // Parent ki room me result bhejo
     io.to(parentId).emit('capture_result', { childId, photoUrl, success: true });
   });
 
@@ -339,6 +313,9 @@ io.on('connection', (socket: any) => {
   });
 });
 
+// ------------------------------------------------------------
+// SERVER START
+// ------------------------------------------------------------
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 JAM API is running!`);
