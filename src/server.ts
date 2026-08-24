@@ -417,6 +417,39 @@ app.delete('/child/:childId', async (req: any, res: any) => {
     res.status(500).json({ success: false, message: 'Error deleting child' });
   }
 });
+// 🗑️ DELETE CHILD API
+app.delete('/child/:childId', async (req: any, res: any) => {
+  try {
+    const { childId } = req.params;
+    console.log(`🗑️ Deleting child with ID: ${childId}`);
+
+    // Check if child exists
+    const child = await prisma.user.findUnique({
+      where: { id: childId },
+      include: { devices: true }
+    });
+
+    if (!child) {
+      return res.status(404).json({ success: false, message: 'Child not found' });
+    }
+
+    // Delete all devices of the child
+    await prisma.device.deleteMany({
+      where: { userId: childId }
+    });
+
+    // Delete the child user
+    await prisma.user.delete({
+      where: { id: childId }
+    });
+
+    console.log(`✅ Child ${childId} deleted successfully`);
+    res.json({ success: true, message: 'Child deleted successfully!' });
+  } catch (error) {
+    console.error('Delete Child Error:', error);
+    res.status(500).json({ success: false, message: 'Error deleting child' });
+  }
+});
 // ------------------------------------------------------------
 // SERVER START
 // ------------------------------------------------------------
