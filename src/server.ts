@@ -395,6 +395,29 @@ io.on('connection', (socket: any) => {
 });
 
 // ------------------------------------------------------------
+// 🗑️ DELETE CHILD API (Parent se child delete karne ke liye)
+// ------------------------------------------------------------
+app.delete('/child/:childId', async (req: any, res: any) => {
+  try {
+    const { childId } = req.params;
+    // Optional: Verify that the requesting user is the parent of this child
+    // We can get parentId from query or body, but we'll assume the caller is authenticated.
+    // For simplicity, we just delete the child and their devices.
+    // First, delete all devices of the child
+    await prisma.device.deleteMany({
+      where: { userId: childId }
+    });
+    // Then delete the child user
+    await prisma.user.delete({
+      where: { id: childId }
+    });
+    res.json({ success: true, message: 'Child deleted successfully!' });
+  } catch (error) {
+    console.error('Delete Child Error:', error);
+    res.status(500).json({ success: false, message: 'Error deleting child' });
+  }
+});
+// ------------------------------------------------------------
 // SERVER START
 // ------------------------------------------------------------
 const PORT = process.env.PORT || 5000;
