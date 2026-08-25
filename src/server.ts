@@ -24,7 +24,7 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Supabase Client Initialize karo
+// ✅ Supabase Client Initialize
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
@@ -32,11 +32,11 @@ const supabase = createClient(
 
 const JWT_SECRET = process.env.JWT_SECRET || 'JAM_SUPER_SECRET_KEY_2026';
 
-// ✅ Multer ko memoryStorage me change karo (diskStorage ki jagah)
+// ✅ Multer memoryStorage (for Supabase upload)
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ------------------------------------------------------------
-// REGISTER API (SAME)
+// 1. REGISTER API
 // ------------------------------------------------------------
 app.post('/register', async (req, res) => {
   try {
@@ -64,7 +64,7 @@ app.post('/register', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// LOGIN API (SAME)
+// 2. LOGIN API
 // ------------------------------------------------------------
 app.post('/login', async (req, res) => {
   try {
@@ -96,7 +96,7 @@ app.post('/login', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// ADD DEVICE API (SAME)
+// 3. ADD DEVICE API
 // ------------------------------------------------------------
 app.post('/add-device', async (req, res) => {
   try {
@@ -112,7 +112,7 @@ app.post('/add-device', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// GET DEVICES API (SAME)
+// 4. GET DEVICES API
 // ------------------------------------------------------------
 app.get('/devices/:userId', async (req, res) => {
   try {
@@ -129,7 +129,7 @@ app.get('/devices/:userId', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// UPDATE LOCATION API (SAME)
+// 5. UPDATE LOCATION API
 // ------------------------------------------------------------
 app.post('/update-location', async (req, res) => {
   try {
@@ -157,7 +157,7 @@ app.post('/update-location', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// 🆕 UPLOAD PHOTO API (SUPABASE STORAGE) - UPDATED
+// 6. UPLOAD PHOTO API (Supabase Storage)
 // ------------------------------------------------------------
 app.post('/upload-photo', upload.single('photo'), async (req: any, res: any) => {
   try {
@@ -166,14 +166,12 @@ app.post('/upload-photo', upload.single('photo'), async (req: any, res: any) => 
       return res.status(400).json({ success: false, message: 'No photo received by server' });
     }
 
-    // 1. Unique file name generate karo
     const fileExt = path.extname(req.file.originalname);
     const fileName = `jam_hidden_pic_${Date.now()}${fileExt}`;
     const filePath = `photos/${userId}/${fileName}`;
 
-    // 2. File buffer ko Supabase Storage me upload karo
     const { data, error } = await supabase.storage
-      .from('jam-shield') // 👈 Ye bucket pehle Supabase me create karna hai!
+      .from('jam-shield')
       .upload(filePath, req.file.buffer, {
         contentType: req.file.mimetype,
         cacheControl: '3600',
@@ -185,7 +183,6 @@ app.post('/upload-photo', upload.single('photo'), async (req: any, res: any) => 
       return res.status(500).json({ success: false, message: 'Failed to upload to storage' });
     }
 
-    // 3. Public URL generate karo
     const { data: urlData } = supabase.storage
       .from('jam-shield')
       .getPublicUrl(filePath);
@@ -195,33 +192,29 @@ app.post('/upload-photo', upload.single('photo'), async (req: any, res: any) => 
     console.log(`📸 Photo uploaded to Supabase: ${photoUrl}`);
     io.emit('new_photo_received', { userId, photoUrl });
     res.json({ success: true, message: 'Photo uploaded successfully!', photoUrl });
-
   } catch (error: any) {
     console.error('Upload Photo Error:', error);
     res.status(500).json({ success: false, message: 'Server error during photo upload' });
   }
 });
+
 // ------------------------------------------------------------
-// 🗑️ DELETE PHOTO API (Robust - Handles Supabase & Local URLs)
+// 7. DELETE PHOTO API (Supports both local & Supabase)
 // ------------------------------------------------------------
 app.post('/delete-photo', async (req: any, res: any) => {
   try {
     const { userId, photoUrl } = req.body;
-
     if (!photoUrl) {
       return res.status(400).json({ success: false, message: 'Photo URL is required' });
     }
-
     console.log(`🔍 Attempting to delete: ${photoUrl}`);
 
-    // Check if it's a local Render URL (old format)
+    // Check local URL
     if (photoUrl.includes('/uploads/')) {
       const filename = photoUrl.split('/').pop();
       if (!filename) {
         return res.status(400).json({ success: false, message: 'Invalid local URL format' });
       }
-      
-      // Try to delete from local filesystem (if it exists)
       const filePath = path.join(__dirname, '../uploads', filename);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
@@ -229,62 +222,48 @@ app.post('/delete-photo', async (req: any, res: any) => {
         io.emit('photo_deleted', { userId, photoUrl });
         return res.json({ success: true, message: 'Local photo deleted successfully!' });
       } else {
-        // If local file not found, maybe it was already migrated? Just return success.
         return res.json({ success: true, message: 'Local file already removed.' });
       }
     }
 
-    // Supabase Storage URL format
-    // Expected format: https://<project>.supabase.co/storage/v1/object/public/jam-shield/photos/...
+    // Supabase URL
     try {
       const urlObj = new URL(photoUrl);
-      const pathname = urlObj.pathname; // e.g. /storage/v1/object/public/jam-shield/photos/user123/file.jpg
-
-      // Extract everything after "public/jam-shield/"
+      const pathname = urlObj.pathname;
       const bucketName = 'jam-shield';
       const searchStr = `/storage/v1/object/public/${bucketName}/`;
-      
       if (!pathname.includes(searchStr)) {
-        return res.status(400).json({ success: false, message: 'Invalid Supabase URL format. Missing public bucket path.' });
+        return res.status(400).json({ success: false, message: 'Invalid Supabase URL format.' });
       }
-
       const filePath = pathname.split(searchStr)[1];
       if (!filePath) {
-        return res.status(400).json({ success: false, message: 'Could not extract file path from URL.' });
+        return res.status(400).json({ success: false, message: 'Could not extract file path.' });
       }
-
       console.log(`🗑️ Deleting Supabase file: ${filePath}`);
-
-      // Delete from Supabase Storage
       const { data, error } = await supabase.storage
         .from(bucketName)
         .remove([filePath]);
-
       if (error) {
-        console.error('Supabase Delete Error:', error);
-        // If file not found (404 style), return success as it's already gone.
         if (error.message?.includes('not found')) {
           return res.json({ success: true, message: 'File already removed from Supabase.' });
         }
         return res.status(500).json({ success: false, message: 'Failed to delete from storage: ' + error.message });
       }
-
       console.log(`✅ File deleted successfully: ${filePath}`);
       io.emit('photo_deleted', { userId, photoUrl });
       res.json({ success: true, message: 'Photo deleted successfully from Supabase!' });
-
     } catch (parseError) {
       console.error('URL Parsing Error:', parseError);
       return res.status(400).json({ success: false, message: 'Malformed URL provided.' });
     }
-
   } catch (error: any) {
     console.error('Delete Photo Error:', error);
     res.status(500).json({ success: false, message: 'Server error during photo deletion' });
   }
 });
+
 // ------------------------------------------------------------
-// SYNC FILES API (SAME)
+// 8. SYNC FILES API
 // ------------------------------------------------------------
 app.post('/sync-files', async (req, res) => {
   try {
@@ -302,7 +281,7 @@ app.post('/sync-files', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// SYNC NOTIFICATIONS API (SAME)
+// 9. SYNC NOTIFICATIONS API
 // ------------------------------------------------------------
 app.post('/sync-notifications', async (req, res) => {
   try {
@@ -318,7 +297,7 @@ app.post('/sync-notifications', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// SYNC ACTIVITY LOGS API (SAME)
+// 10. SYNC ACTIVITY LOGS API
 // ------------------------------------------------------------
 app.post('/sync-activity-logs', async (req, res) => {
   try {
@@ -337,7 +316,7 @@ app.post('/sync-activity-logs', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// GET CHILDREN API (PARENT DASHBOARD)
+// 11. GET CHILDREN API (for Parent Dashboard)
 // ------------------------------------------------------------
 app.get('/children/:parentId', async (req, res) => {
   try {
@@ -354,7 +333,42 @@ app.get('/children/:parentId', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// SOCKET.IO CONNECTION HANDLER (WITH REMOTE CAPTURE)
+// 12. DELETE CHILD API (Parent delete child)
+// ------------------------------------------------------------
+app.delete('/child/:childId', async (req: any, res: any) => {
+  try {
+    const { childId } = req.params;
+    console.log(`🗑️ Deleting child with ID: ${childId}`);
+
+    const child = await prisma.user.findUnique({
+      where: { id: childId },
+      include: { devices: true }
+    });
+
+    if (!child) {
+      return res.status(404).json({ success: false, message: 'Child not found' });
+    }
+
+    // Delete all devices
+    await prisma.device.deleteMany({
+      where: { userId: childId }
+    });
+
+    // Delete child user
+    await prisma.user.delete({
+      where: { id: childId }
+    });
+
+    console.log(`✅ Child ${childId} deleted successfully`);
+    res.json({ success: true, message: 'Child deleted successfully!' });
+  } catch (error) {
+    console.error('Delete Child Error:', error);
+    res.status(500).json({ success: false, message: 'Error deleting child' });
+  }
+});
+
+// ------------------------------------------------------------
+// SOCKET.IO CONNECTION HANDLER
 // ------------------------------------------------------------
 io.on('connection', (socket: any) => {
   console.log(`🔌 A client connected: ${socket.id}`);
@@ -394,62 +408,6 @@ io.on('connection', (socket: any) => {
   });
 });
 
-// ------------------------------------------------------------
-// 🗑️ DELETE CHILD API (Parent se child delete karne ke liye)
-// ------------------------------------------------------------
-app.delete('/child/:childId', async (req: any, res: any) => {
-  try {
-    const { childId } = req.params;
-    // Optional: Verify that the requesting user is the parent of this child
-    // We can get parentId from query or body, but we'll assume the caller is authenticated.
-    // For simplicity, we just delete the child and their devices.
-    // First, delete all devices of the child
-    await prisma.device.deleteMany({
-      where: { userId: childId }
-    });
-    // Then delete the child user
-    await prisma.user.delete({
-      where: { id: childId }
-    });
-    res.json({ success: true, message: 'Child deleted successfully!' });
-  } catch (error) {
-    console.error('Delete Child Error:', error);
-    res.status(500).json({ success: false, message: 'Error deleting child' });
-  }
-});
-// 🗑️ DELETE CHILD API
-app.delete('/child/:childId', async (req: any, res: any) => {
-  try {
-    const { childId } = req.params;
-    console.log(`🗑️ Deleting child with ID: ${childId}`);
-
-    // Check if child exists
-    const child = await prisma.user.findUnique({
-      where: { id: childId },
-      include: { devices: true }
-    });
-
-    if (!child) {
-      return res.status(404).json({ success: false, message: 'Child not found' });
-    }
-
-    // Delete all devices of the child
-    await prisma.device.deleteMany({
-      where: { userId: childId }
-    });
-
-    // Delete the child user
-    await prisma.user.delete({
-      where: { id: childId }
-    });
-
-    console.log(`✅ Child ${childId} deleted successfully`);
-    res.json({ success: true, message: 'Child deleted successfully!' });
-  } catch (error) {
-    console.error('Delete Child Error:', error);
-    res.status(500).json({ success: false, message: 'Error deleting child' });
-  }
-});
 // ------------------------------------------------------------
 // SERVER START
 // ------------------------------------------------------------
